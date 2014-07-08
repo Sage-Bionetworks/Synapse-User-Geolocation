@@ -9,10 +9,13 @@ import java.io.InputStreamReader;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLEncoder;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.TreeMap;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -21,6 +24,8 @@ import org.sagebionetworks.client.SynapseClient;
 import org.sagebionetworks.client.SynapseClientImpl;
 import org.sagebionetworks.client.SynapseProfileProxy;
 import org.sagebionetworks.repo.model.PaginatedResults;
+import org.sagebionetworks.repo.model.Team;
+import org.sagebionetworks.repo.model.TeamMember;
 import org.sagebionetworks.repo.model.UserProfile;
 
 import com.amazonaws.auth.AWSCredentials;
@@ -33,13 +38,17 @@ import com.amazonaws.services.s3.model.ObjectMetadata;
  *
  */
 public class SynapseUserGeolocation {
-	private static final int PAGE_SIZE = 50;
+	private static final int PAGE_SIZE = 500;
 	private static final String BUCKET_NAME = "geoloc.sagebase.org";
 	    private static final String JS_FILE_NAME = "geoLocate.js";
     private static final String MAIN_PAGE_FILE_TEMPLATE = "indexTemplate.html";
     private static final String MAIN_PAGE_FILE_NAME = "index.html";
+    private static final String TEAM_PAGE_FILE_TEMPLATE = "teamPageTemplate.html";
     // this allows us to test without processing all users
-    private static final int MAX_GEO_POSNS = 20; //10000;
+    private static final int MAX_GEO_POSNS = 10000;
+    private static final String LATLNG_TAG = "latLng";
+    private static final String LOCATION_TAG = "location";
+    private static final String USER_IDS_TAG = "userIds";
    
 	
     public static void main( String[] args ) throws Exception {
@@ -55,7 +64,9 @@ public class SynapseUserGeolocation {
     	int latLngCount = 0;
     	int geoLocatedUsersCount = 0;
     	Map<String,JSONObject> geoLocMap = new HashMap<String,JSONObject>();
+    	Map<String,String> userToLocationMap = new HashMap<String,String>();
        	for (int offset=0; offset<total && latLngCount<MAX_GEO_POSNS; offset+=PAGE_SIZE) {
+			System.out.println(""+offset+" of "+total);
        		PaginatedResults<UserProfile> pr = synapseClient.getUsers(offset, PAGE_SIZE);
         	total = (int)pr.getTotalNumberOfResults();
         	List<UserProfile> page = pr.getResults();
@@ -68,7 +79,12 @@ public class SynapseUserGeolocation {
         					replaceAll("Quï¿½bec", "Québec").
         					replaceAll("Santo Andrï¿½", "Santo André").
         					replaceAll("Tï¿½bingen", "Tübingen").
-        					replaceAll("Zï¿½rich", "Zürich");
+        					replaceAll("Zï¿½rich", "Zürich").
+        					replaceAll("DÃ¯Â¿Â½sseldorf, Germany", "Düsseldorf, Germany").
+        					replaceAll("Santo AndrÃÃÃÂ¯ÃÃÃÂ¿ÃÃÃÂ½, Brazil", "Santo André, Brazil").
+        					replaceAll("QuÃ¯Â¿Â½bec, Canada", "Québec, Canada").
+        					replaceAll("TÃÂ¯ÃÂ¿ÃÂ½bingen, Germany", "Tübingen, Germany").
+        					replaceAll("BogotÃ¯Â¿Â½, Colombia", "Bogota, Colombia");
         			JSONObject geoLocatedInfo = geoLocMap.get(fixedLocation);
 
         			if (geoLocatedInfo==null) {
@@ -90,24 +106,24 @@ public class SynapseUserGeolocation {
                 				Thread.sleep(500L);
                 				latlng = getLatLngFromResponse(json);
         					}
-        					if (latlng==null) System.out.println("No result for "+urlString);
+        					if (latlng==null) System.out.println("No result for "+fixedLocation);
         				}
         				if (latlng!=null) {
-        					// TODO if there is an existing lat/lng that matches this one, then merge
-        					geoLocatedInfo = new JSONObject();
-        					geoLocatedInfo.put("location", fixedLocation);
-        					JSONArray jsonLatLng = new JSONArray();
-        					for (int ll=0; ll<2; ll++) jsonLatLng.put(ll, latlng[ll]);
-        					geoLocatedInfo.put("latLng", jsonLatLng);
-        					JSONArray userIds = new JSONArray();
-        					userIds.put(userIds.length(), up.getOwnerId());
-        					geoLocatedInfo.put("userIds", userIds);
-        					geoLocMap.put(fixedLocation, geoLocatedInfo);
+        					// if there is an existing lat/lng that matches this one, then merge
+        					geoLocatedInfo = checkForDuplicate(fixedLocation, latlng, geoLocMap.values());
+        					if (geoLocatedInfo == null) {
+        						geoLocatedInfo = initializeGeoLocInfo(fixedLocation, up.getOwnerId());
+        						JSONArray jsonLatLng = (JSONArray)geoLocatedInfo.get(LATLNG_TAG);
+        						for (int ll=0; ll<2; ll++) jsonLatLng.put(ll, latlng[ll]);
+        						geoLocMap.put(fixedLocation, geoLocatedInfo);
+        					}
+        					userToLocationMap.put(up.getOwnerId(), fixedLocation);
         					geoLocatedUsersCount++;
         				}
         			} else {
-        				JSONArray userIds = (JSONArray)geoLocatedInfo.get("userIds");
+        				JSONArray userIds = (JSONArray)geoLocatedInfo.get(USER_IDS_TAG);
         				userIds.put(userIds.length(), up.getOwnerId());
+    					userToLocationMap.put(up.getOwnerId(), fixedLocation);
     					geoLocatedUsersCount++;
         			}
         			latLngCount++;
@@ -120,20 +136,91 @@ public class SynapseUserGeolocation {
     		
     	}
     	System.out.println("Number of geolocated users: "+geoLocatedUsersCount+".  Number of distinct locations: "+geoLocMap.size());
-    	//System.out.println(allInfo);
     	
     	// upload the js file
     	String jsContent = readTemplate(JS_FILE_NAME, null);
     	uploadFile(JS_FILE_NAME, jsContent);
+    	
+       	// add Team pages
+    	PaginatedResults<Team> teamPRs = synapseClient.getTeams(null, Integer.MAX_VALUE, 0);
+    	Map<String,Team> nameToTeamMap = new TreeMap<String,Team>();
+    	// sort teams by name
+    	for (Team team : teamPRs.getResults()) nameToTeamMap.put(team.getName(), team);
+    	List<String> hyperLinks = new ArrayList<String>();
+    	for (String name : nameToTeamMap.keySet()) {
+    		Team team = nameToTeamMap.get(name);
+        	PaginatedResults<TeamMember> memberPRs = synapseClient.getTeamMembers(team.getId(), null, Integer.MAX_VALUE, 0);
+        	Map<String,JSONObject> teamGeoLocMap = new HashMap<String,JSONObject>();
+        	for (TeamMember member : memberPRs.getResults()) {
+        		String userId = member.getMember().getOwnerId();
+        		String location = userToLocationMap.get(userId);
+        		if (location==null) continue;
+        		JSONObject geoLocatedInfo = geoLocMap.get(location);
+        		JSONObject teamGeoLocatedInfo = teamGeoLocMap.get(location);
+        		if (teamGeoLocatedInfo==null) {
+        			teamGeoLocatedInfo = initializeGeoLocInfo(location, userId);
+					JSONArray srcLatLng = (JSONArray)geoLocatedInfo.get(LATLNG_TAG);
+					JSONArray dstLatLng = (JSONArray)teamGeoLocatedInfo.get(LATLNG_TAG);
+					for (int ll=0; ll<2; ll++) dstLatLng.put(ll, srcLatLng.getDouble(ll));
+					teamGeoLocMap.put(location, teamGeoLocatedInfo);
+        		} else {
+        			JSONArray userIds = (JSONArray)teamGeoLocatedInfo.get(USER_IDS_TAG);
+        			userIds.put(userIds.length(), userId);
+        		}
+        	}
+        	// don't create a page for Teams having no geolocated members
+        	if (teamGeoLocMap.isEmpty()) continue;
+        	JSONArray teamInfo = new JSONArray();
+        	for (JSONObject teamGeoLocatedInfo : teamGeoLocMap.values()) teamInfo.put(teamInfo.length(), teamGeoLocatedInfo);
+        	Map<String,String> fieldValues = new HashMap<String,String>();
+        	fieldValues.put("##teamName##", name);
+        	fieldValues.put("##teamId##", team.getId());
+        	fieldValues.put("##geoLocInfo##", teamInfo.toString());
+        	String teamPageContent = readTemplate(TEAM_PAGE_FILE_TEMPLATE, fieldValues);
+        	String fileName = team.getId()+".html";
+        	uploadFile(fileName, teamPageContent);
+        	hyperLinks.add("<a href="+fileName+">"+name+"</a><br/>");
+    	}
+    	
     	// upload the main page
     	Map<String,String> fieldValues = new HashMap<String,String>();
     	fieldValues.put("##geoLocInfo##", allInfo.toString());
     	fieldValues.put("##numberOfUsers##", ""+geoLocatedUsersCount);
-    	// TODO: add hyperlinks to Team pages
+    	// add hyperlinks to Team pages
+    	StringBuilder sb = new StringBuilder();
+    	for (String hyperlink : hyperLinks) sb.append(hyperlink);
+    	fieldValues.put("##teamPageLinks##", sb.toString());
     	String mainPageContent = readTemplate(MAIN_PAGE_FILE_TEMPLATE, fieldValues);
+    	
     	uploadFile(MAIN_PAGE_FILE_NAME, mainPageContent);
-    	// TODO:  add Team pages
+    	
+   	    	
+    	
     	System.out.println("Finished uploading files to S3.  Visit http://s3.amazonaws.com/"+BUCKET_NAME+"/"+MAIN_PAGE_FILE_NAME);
+    }
+    
+    private static final double EPSILON = 1e-4;
+    
+    private static JSONObject checkForDuplicate(String location, double[]latlng, Collection<JSONObject> values) throws JSONException {
+    	for (JSONObject o : values) {
+    		JSONArray a = (JSONArray)o.get(LATLNG_TAG);
+    		if (Math.abs(latlng[0]-a.getDouble(0))<EPSILON && Math.abs(latlng[1]-a.getDouble(1))<EPSILON) {
+    			//System.out.println(location+" is colocated with "+o.get(LOCATION_TAG));
+    			return o;
+    		}
+    	}
+    	return null;
+    }
+    
+    private static JSONObject initializeGeoLocInfo(String location, String userId) throws JSONException {
+    	JSONObject  geoLocatedInfo = new JSONObject();
+		geoLocatedInfo.put(LOCATION_TAG, location);
+		JSONArray jsonLatLng = new JSONArray();
+		geoLocatedInfo.put(LATLNG_TAG, jsonLatLng);
+		JSONArray userIds = new JSONArray();
+		userIds.put(userIds.length(), userId);
+		geoLocatedInfo.put(USER_IDS_TAG, userIds);
+		return geoLocatedInfo;
     }
     
     private static boolean empty(String s) {
@@ -209,6 +296,7 @@ public class SynapseUserGeolocation {
 
 	
 	private static void uploadFile(String s3FileName, String content) throws IOException {
+    	System.out.println("Uploading "+s3FileName);
 		String accessKey = getProperty("ACCESS_KEY");
 		String secretKey = getProperty("SECRET_KEY");
 		AWSCredentials awsCredentials = new BasicAWSCredentials(accessKey, secretKey);
