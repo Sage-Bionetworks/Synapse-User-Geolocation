@@ -40,12 +40,12 @@ import com.amazonaws.services.s3.model.ObjectMetadata;
 public class SynapseUserGeolocation {
 	private static final int PAGE_SIZE = 500;
 	private static final String BUCKET_NAME = "geoloc.sagebase.org";
-	    private static final String JS_FILE_NAME = "geoLocate.js";
+	private static final String JS_FILE_NAME = "geoLocate.js";
     private static final String MAIN_PAGE_FILE_TEMPLATE = "indexTemplate.html";
     private static final String MAIN_PAGE_FILE_NAME = "index.html";
     private static final String TEAM_PAGE_FILE_TEMPLATE = "teamPageTemplate.html";
     // this allows us to test without processing all users
-    private static final int MAX_GEO_POSNS = 10000;
+    private static final int MAX_GEO_POSNS = 100000;
     private static final String LATLNG_TAG = "latLng";
     private static final String LOCATION_TAG = "location";
     private static final String USER_IDS_TAG = "userIds";
@@ -84,7 +84,8 @@ public class SynapseUserGeolocation {
         					replaceAll("Santo AndrÃÃÃÂ¯ÃÃÃÂ¿ÃÃÃÂ½, Brazil", "Santo André, Brazil").
         					replaceAll("QuÃ¯Â¿Â½bec, Canada", "Québec, Canada").
         					replaceAll("TÃÂ¯ÃÂ¿ÃÂ½bingen, Germany", "Tübingen, Germany").
-        					replaceAll("BogotÃ¯Â¿Â½, Colombia", "Bogota, Colombia");
+        					replaceAll("BogotÃ¯Â¿Â½, Colombia", "Bogota, Colombia").
+        					replaceAll("Sï¿½o Paulo, Brazil", "Sao Paulo, Brazil");
         			JSONObject geoLocatedInfo = geoLocMap.get(fixedLocation);
 
         			if (geoLocatedInfo==null) {
@@ -106,7 +107,9 @@ public class SynapseUserGeolocation {
                 				Thread.sleep(500L);
                 				latlng = getLatLngFromResponse(json);
         					}
-        					if (latlng==null) System.out.println("No result for "+fixedLocation);
+        					if (latlng==null) {
+        						System.out.println("No result for "+fixedLocation);
+        					}
         				}
         				if (latlng!=null) {
         					// if there is an existing lat/lng that matches this one, then merge
@@ -116,6 +119,8 @@ public class SynapseUserGeolocation {
         						JSONArray jsonLatLng = (JSONArray)geoLocatedInfo.get(LATLNG_TAG);
         						for (int ll=0; ll<2; ll++) jsonLatLng.put(ll, latlng[ll]);
         						geoLocMap.put(fixedLocation, geoLocatedInfo);
+        					} else {
+        						fixedLocation = geoLocatedInfo.getString(LOCATION_TAG);
         					}
         					userToLocationMap.put(up.getOwnerId(), fixedLocation);
         					geoLocatedUsersCount++;
@@ -156,6 +161,8 @@ public class SynapseUserGeolocation {
         		String location = userToLocationMap.get(userId);
         		if (location==null) continue;
         		JSONObject geoLocatedInfo = geoLocMap.get(location);
+        		if (geoLocatedInfo==null) throw 
+        			new IllegalStateException(userId+" maps to "+location+" but this location has no value in 'geoLocMap'");
         		JSONObject teamGeoLocatedInfo = teamGeoLocMap.get(location);
         		if (teamGeoLocatedInfo==null) {
         			teamGeoLocatedInfo = initializeGeoLocInfo(location, userId);
