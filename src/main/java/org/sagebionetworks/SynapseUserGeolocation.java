@@ -91,7 +91,7 @@ public class SynapseUserGeolocation {
         				String encodedLocation = URLEncoder.encode(fixedLocation, "utf-8");
         				String urlString = "https://maps.googleapis.com/maps/api/geocode/json?sensor=true_or_false&address="+
         						encodedLocation;
-        				String json = executeJsonQuery(urlString);
+        				String json = executeJsonQueryWithRetry(urlString);
         				Thread.sleep(500L);
         				double[] latlng = getLatLngFromResponse(json);
         				if (latlng==null) {
@@ -102,7 +102,7 @@ public class SynapseUserGeolocation {
                 				encodedLocation = URLEncoder.encode(upString, "utf-8");
                 				urlString = "https://maps.googleapis.com/maps/api/geocode/json?sensor=true_or_false&address="+
                 						encodedLocation;
-                				json = executeJsonQuery(urlString);
+                				json = executeJsonQueryWithRetry(urlString);
                 				Thread.sleep(500L);
                 				latlng = getLatLngFromResponse(json);
         					}
@@ -226,6 +226,25 @@ public class SynapseUserGeolocation {
     private static boolean empty(String s) {
     	return s==null || s.length()==0;
     }
+    
+    private static final int RETRIES = 3;
+    
+	private static String executeJsonQueryWithRetry(String urlString) throws IOException {
+		for (int i=0; i<RETRIES; i++) {
+			try {
+				return executeJsonQuery(urlString);
+			} catch (IOException e) {
+				if (i==RETRIES-1) throw e;
+				System.out.println("encountered exception for "+urlString);
+			}
+			try {
+				Thread.sleep(1000L);
+			} catch (InterruptedException e) {
+				throw new RuntimeException(e);
+			}
+		}
+		throw new IllegalStateException(); // shouldn't reach this line
+	}  
     
 	private static String executeJsonQuery(String urlString) throws IOException {
 		URL url = new URL(urlString);
