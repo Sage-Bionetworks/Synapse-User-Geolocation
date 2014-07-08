@@ -1,8 +1,11 @@
 package org.sagebionetworks;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLEncoder;
@@ -11,8 +14,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
-import org.json.JSONException;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.sagebionetworks.client.SynapseClient;
 import org.sagebionetworks.client.SynapseClientImpl;
@@ -20,16 +23,27 @@ import org.sagebionetworks.client.SynapseProfileProxy;
 import org.sagebionetworks.repo.model.PaginatedResults;
 import org.sagebionetworks.repo.model.UserProfile;
 
+import com.amazonaws.auth.AWSCredentials;
+import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.services.s3.AmazonS3Client;
+import com.amazonaws.services.s3.model.ObjectMetadata;
+
 /**
  * Hello world!
  *
  */
-public class SynapseUserGeolocation 
-{
+public class SynapseUserGeolocation {
 	private static final int PAGE_SIZE = 50;
+	private static final String BUCKET_NAME = "geoloc.sagebase.org";
+	    private static final String JS_FILE_NAME = "geoLocate.js";
+    private static final String MAIN_PAGE_FILE_TEMPLATE = "indexTemplate.html";
+    private static final String MAIN_PAGE_FILE_NAME = "index.html";
+    // this allows us to test without processing all users
+    private static final int MAX_GEO_POSNS = 20; //10000;
+   
 	
-    public static void main( String[] args ) {
-        System.out.println( "Hello World!" );
+    public static void main( String[] args ) throws Exception {
+    	geoLocate();
     }
     
     public static void geoLocate() throws Exception {
@@ -38,14 +52,8 @@ public class SynapseUserGeolocation
         SynapseClient synapseClient = createSynapseClient();
         synapseClient.login(synapseUserName, synapsePassword);
     	long total = Integer.MAX_VALUE;
-    	int upCount = 0;
-    	int companyCount = 0;
-    	int industryCount = 0;
-    	int positionCount = 0;
-    	int locationCount = 0;
     	int latLngCount = 0;
     	int geoLocatedUsersCount = 0;
-    	int MAX_GEO_POSNS = 10000;
     	Map<String,JSONObject> geoLocMap = new HashMap<String,JSONObject>();
        	for (int offset=0; offset<total && latLngCount<MAX_GEO_POSNS; offset+=PAGE_SIZE) {
        		PaginatedResults<UserProfile> pr = synapseClient.getUsers(offset, PAGE_SIZE);
@@ -53,11 +61,6 @@ public class SynapseUserGeolocation
         	List<UserProfile> page = pr.getResults();
         	for (int i=0; i<page.size() && latLngCount<MAX_GEO_POSNS; i++) {
         		UserProfile up = page.get(i);
-        		upCount++;
-        		if (!empty(up.getCompany())) companyCount++;
-        		if (!empty(up.getIndustry())) industryCount++;
-        		if (!empty(up.getPosition())) positionCount++;
-        		if (!empty(up.getLocation())) locationCount++;
         		if (!empty(up.getLocation())) {
         			String fixedLocation = up.getLocation().
         					replaceAll("Bogotï¿½", "Bogotá").
@@ -117,7 +120,20 @@ public class SynapseUserGeolocation
     		
     	}
     	System.out.println("Number of geolocated users: "+geoLocatedUsersCount+".  Number of distinct locations: "+geoLocMap.size());
-    	System.out.println(allInfo);
+    	//System.out.println(allInfo);
+    	
+    	// upload the js file
+    	String jsContent = readTemplate(JS_FILE_NAME, null);
+    	uploadFile(JS_FILE_NAME, jsContent);
+    	// upload the main page
+    	Map<String,String> fieldValues = new HashMap<String,String>();
+    	fieldValues.put("##geoLocInfo##", allInfo.toString());
+    	fieldValues.put("##numberOfUsers##", ""+geoLocatedUsersCount);
+    	// TODO: add hyperlinks to Team pages
+    	String mainPageContent = readTemplate(MAIN_PAGE_FILE_TEMPLATE, fieldValues);
+    	uploadFile(MAIN_PAGE_FILE_NAME, mainPageContent);
+    	// TODO:  add Team pages
+    	System.out.println("Finished uploading files to S3.  Visit http://s3.amazonaws.com/"+BUCKET_NAME+"/"+MAIN_PAGE_FILE_NAME);
     }
     
     private static boolean empty(String s) {
@@ -161,6 +177,49 @@ public class SynapseUserGeolocation
 	    	return result;
 		} catch (JSONException e) {
 			throw new RuntimeException(s, e);
+		}
+	}
+	
+	public static String readTemplate(String filename, Map<String,String> fieldValues) {
+		try {
+			InputStream is = SynapseUserGeolocation.class.getClassLoader().getResourceAsStream(filename);
+			BufferedReader br = new BufferedReader(new InputStreamReader(is));
+			StringBuilder sb = new StringBuilder();
+			try {
+				String s = br.readLine();
+				while (s != null) {
+					sb.append(s + "\r\n");
+					s = br.readLine();
+				}
+				String template = sb.toString();
+				if (fieldValues!=null) {
+					for (String fieldMarker : fieldValues.keySet()) {
+						template = template.replaceAll(fieldMarker, fieldValues.get(fieldMarker));
+					}
+				}
+				return template;
+			} finally {
+				br.close();
+				is.close();
+			}
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	
+	private static void uploadFile(String s3FileName, String content) throws IOException {
+		String accessKey = getProperty("ACCESS_KEY");
+		String secretKey = getProperty("SECRET_KEY");
+		AWSCredentials awsCredentials = new BasicAWSCredentials(accessKey, secretKey);
+		AmazonS3Client client = new AmazonS3Client(awsCredentials);
+		ObjectMetadata metadata = new ObjectMetadata();
+		metadata.setContentType("text/html");
+		InputStream is = new ByteArrayInputStream(content.getBytes("utf-8"));
+		try {
+			client.putObject(BUCKET_NAME, s3FileName, is, metadata);
+		} finally {
+			is.close();
 		}
 	}
 
