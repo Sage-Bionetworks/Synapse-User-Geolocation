@@ -77,11 +77,12 @@ public class SynapseUserGeolocation {
         					replaceAll("Bogotï¿½", "Bogotá").
         					replaceAll("Dï¿½sseldorf", "Düsseldorf").
         					replaceAll("Quï¿½bec", "Québec").
-        					replaceAll("Santo Andrï¿½", "Santo André").
+           					replaceAll("Santo Andrï¿½", "Santo André").
         					replaceAll("Tï¿½bingen", "Tübingen").
         					replaceAll("Zï¿½rich", "Zürich").
         					replaceAll("DÃ¯Â¿Â½sseldorf, Germany", "Düsseldorf, Germany").
-        					replaceAll("Santo AndrÃÃÃÂ¯ÃÃÃÂ¿ÃÃÃÂ½, Brazil", "Santo André, Brazil").
+        					replaceAll("Santo AndrÃÃÃÂ¯ÃÃÃÂ¿ÃÃÃÂ½", "Santo André").
+           					replaceAll("Santo AndrÃÃÂ¯ÃÃÂ¿ÃÃÂ½", "Santo André").
         					replaceAll("QuÃ¯Â¿Â½bec, Canada", "Québec, Canada").
         					replaceAll("TÃÂ¯ÃÂ¿ÃÂ½bingen, Germany", "Tübingen, Germany").
         					replaceAll("BogotÃ¯Â¿Â½, Colombia", "Bogota, Colombia").
@@ -236,18 +237,20 @@ public class SynapseUserGeolocation {
     
     private static final int RETRIES = 3;
     
+    private static final String EMPTY_JSON = "{}";
+    
 	private static String executeJsonQueryWithRetry(String urlString) throws IOException {
 		for (int i=0; i<RETRIES; i++) {
 			try {
 				return executeJsonQuery(urlString);
 			} catch (IOException e) {
-				if (i==RETRIES-1) throw e;
+				if (i==RETRIES-1) return EMPTY_JSON;
 				System.out.println("encountered exception for "+urlString);
 			}
 			try {
 				Thread.sleep(1000L);
 			} catch (InterruptedException e) {
-				throw new RuntimeException(e);
+				// continue retrying
 			}
 		}
 		throw new IllegalStateException(); // shouldn't reach this line
