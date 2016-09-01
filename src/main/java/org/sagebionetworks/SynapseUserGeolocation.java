@@ -27,6 +27,8 @@ import org.sagebionetworks.reflection.model.PaginatedResults;
 import org.sagebionetworks.repo.model.Team;
 import org.sagebionetworks.repo.model.TeamMember;
 import org.sagebionetworks.repo.model.UserProfile;
+import org.sagebionetworks.utils.DefaultHttpClientSingleton;
+import org.sagebionetworks.utils.HttpClientHelper;
 
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.BasicAWSCredentials;
@@ -38,7 +40,7 @@ import com.amazonaws.services.s3.model.ObjectMetadata;
  *
  */
 public class SynapseUserGeolocation {
-	private static final int PAGE_SIZE = 500;
+	private static final int PAGE_SIZE = 20;
 	private static final String BUCKET_NAME = "geoloc.sagebase.org";
 	private static final String JS_FILE_NAME = "geoLocate.js";
     private static final String MAIN_PAGE_FILE_TEMPLATE = "indexTemplate.html";
@@ -49,7 +51,6 @@ public class SynapseUserGeolocation {
     private static final String LATLNG_TAG = "latLng";
     private static final String LOCATION_TAG = "location";
     private static final String USER_IDS_TAG = "userIds";
-   
 	
     public static void main( String[] args ) throws Exception {
     	geoLocate();
@@ -58,7 +59,7 @@ public class SynapseUserGeolocation {
     public static void geoLocate() throws Exception {
     	String synapseUserName = getProperty("SYNAPSE_USERNAME");
     	String synapsePassword = getProperty("SYNAPSE_PASSWORD");
-        SynapseClient synapseClient = createSynapseClient();
+        SynapseClient synapseClient = SynapseClientFactory.createSynapseClient();
         synapseClient.login(synapseUserName, synapsePassword);
     	long total = Integer.MAX_VALUE;
     	int latLngCount = 0;
@@ -85,6 +86,7 @@ public class SynapseUserGeolocation {
            					replaceAll("Santo AndrÃÃÂ¯ÃÃÂ¿ÃÃÂ½", "Santo André").
         					replaceAll("QuÃ¯Â¿Â½bec, Canada", "Québec, Canada").
         					replaceAll("TÃÂ¯ÃÂ¿ÃÂ½bingen, Germany", "Tübingen, Germany").
+        					replaceAll("TÃ¯Â¿Â½bingen, Germany", "Tübingen, Germany").
         					replaceAll("BogotÃ¯Â¿Â½, Colombia", "Bogota, Colombia").
         					replaceAll("Sï¿½o Paulo, Brazil", "Sao Paulo, Brazil");
         			JSONObject geoLocatedInfo = geoLocMap.get(fixedLocation);
@@ -370,19 +372,5 @@ public class SynapseUserGeolocation {
 		throw new RuntimeException("Cannot find value for "+key);
 	}	
 	  
-	private static SynapseClient createSynapseClient() {
-			boolean staging = false;
-			SynapseClientImpl scIntern = new SynapseClientImpl();
-			if (staging) {
-				scIntern.setAuthEndpoint("https://repo-staging.prod.sagebase.org/auth/v1");
-				scIntern.setRepositoryEndpoint("https://repo-staging.prod.sagebase.org/repo/v1");
-				scIntern.setFileEndpoint("https://repo-staging.prod.sagebase.org/file/v1");
-			} else { // prod
-				scIntern.setAuthEndpoint("https://repo-prod.prod.sagebase.org/auth/v1");
-				scIntern.setRepositoryEndpoint("https://repo-prod.prod.sagebase.org/repo/v1");
-				scIntern.setFileEndpoint("https://repo-prod.prod.sagebase.org/file/v1");
-			}
-			return SynapseProfileProxy.createProfileProxy(scIntern);
 
-	  }
 }
