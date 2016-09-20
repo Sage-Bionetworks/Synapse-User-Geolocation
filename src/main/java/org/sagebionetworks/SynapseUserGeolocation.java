@@ -21,14 +21,10 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.sagebionetworks.client.SynapseClient;
-import org.sagebionetworks.client.SynapseClientImpl;
-import org.sagebionetworks.client.SynapseProfileProxy;
 import org.sagebionetworks.reflection.model.PaginatedResults;
 import org.sagebionetworks.repo.model.Team;
 import org.sagebionetworks.repo.model.TeamMember;
 import org.sagebionetworks.repo.model.UserProfile;
-import org.sagebionetworks.utils.DefaultHttpClientSingleton;
-import org.sagebionetworks.utils.HttpClientHelper;
 
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.BasicAWSCredentials;
@@ -45,6 +41,7 @@ public class SynapseUserGeolocation {
 	private static final String JS_FILE_NAME = "geoLocate.js";
     private static final String MAIN_PAGE_FILE_TEMPLATE = "indexTemplate.html";
     private static final String MAIN_PAGE_FILE_NAME = "index.html";
+    private static final String ALL_MARKERS_JSON = "allPoints.json";
     private static final String TEAM_PAGE_FILE_TEMPLATE = "teamPageTemplate.html";
     // this allows us to test without processing all users
     private static final int MAX_GEO_POSNS = 100000;
@@ -189,6 +186,7 @@ public class SynapseUserGeolocation {
         	String teamPageContent = readTemplate(TEAM_PAGE_FILE_TEMPLATE, fieldValues);
         	String fileName = team.getId()+".html";
         	uploadFile(fileName, teamPageContent);
+        	uploadFile(team.getId()+".json", teamInfo.toString());
         	hyperLinks.add("<a href="+fileName+">"+name+"</a><br/>");
     	}
     	
@@ -203,8 +201,7 @@ public class SynapseUserGeolocation {
     	String mainPageContent = readTemplate(MAIN_PAGE_FILE_TEMPLATE, fieldValues);
     	
     	uploadFile(MAIN_PAGE_FILE_NAME, mainPageContent);
-    	
-   	    	
+    	uploadFile(ALL_MARKERS_JSON, allInfo.toString());
     	
     	System.out.println("Finished uploading files to S3.  Visit http://s3.amazonaws.com/"+BUCKET_NAME+"/"+MAIN_PAGE_FILE_NAME);
     }
