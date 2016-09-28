@@ -206,7 +206,7 @@ public class SynapseUserGeolocation {
     	System.out.println("Finished uploading files to S3.  Visit http://s3.amazonaws.com/"+BUCKET_NAME+"/"+MAIN_PAGE_FILE_NAME);
     }
     
-    private static final double EPSILON = 1e-4;
+    private static final double EPSILON = 1e-2;
     
     private static JSONObject checkForDuplicate(String location, double[]latlng, Collection<JSONObject> values) throws JSONException {
     	for (JSONObject o : values) {
