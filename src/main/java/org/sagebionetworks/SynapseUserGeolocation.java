@@ -147,10 +147,24 @@ public class SynapseUserGeolocation {
     	uploadFile(JS_FILE_NAME, jsContent);
     	
        	// add Team pages
-    	PaginatedResults<Team> teamPRs = synapseClient.getTeams(null, Integer.MAX_VALUE, 0);
     	Map<String,Team> nameToTeamMap = new TreeMap<String,Team>();
-    	// sort teams by name
-    	for (Team team : teamPRs.getResults()) nameToTeamMap.put(team.getName(), team);
+    	{
+    		long limit = 20L; // page size
+    		long totalNumberOfResults = Long.MAX_VALUE;
+    		for (long offset=0; offset<totalNumberOfResults; offset+=limit) {
+    			PaginatedResults<Team> teamPRs = synapseClient.getTeams(null, limit, offset);
+    			totalNumberOfResults=teamPRs.getTotalNumberOfResults();
+    			// sort teams by name
+    			for (Team team : teamPRs.getResults()) nameToTeamMap.put(team.getName(), team);
+    			
+    			// don't overwhelm the server with requests
+    			try {
+    				Thread.sleep(5000L);
+    			} catch (InterruptedException e) {
+    				// continue
+    			}
+    		}
+    	}
     	List<String> hyperLinks = new ArrayList<String>();
     	for (String name : nameToTeamMap.keySet()) {
     		Team team = nameToTeamMap.get(name);
