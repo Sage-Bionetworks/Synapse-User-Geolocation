@@ -58,7 +58,7 @@ public class SynapseUserGeolocation {
     	String synapsePassword = getProperty("SYNAPSE_PASSWORD");
         SynapseClient synapseClient = SynapseClientFactory.createSynapseClient();
         synapseClient.login(synapseUserName, synapsePassword);
-    	long total = Integer.MAX_VALUE;
+    	long total = 1L;
     	int latLngCount = 0;
     	int geoLocatedUsersCount = 0;
     	Map<String,JSONObject> geoLocMap = new HashMap<String,JSONObject>();
@@ -149,10 +149,9 @@ public class SynapseUserGeolocation {
        	// add Team pages
     	Map<String,Team> nameToTeamMap = new TreeMap<String,Team>();
     	{
-    		long limit = 20L; // page size
-    		long totalNumberOfResults = Long.MAX_VALUE;
-    		for (long offset=0; offset<totalNumberOfResults; offset+=limit) {
-    			PaginatedResults<Team> teamPRs = synapseClient.getTeams(null, limit, offset);
+    		long totalNumberOfResults = 1L;
+    		for (long offset=0; offset<totalNumberOfResults; offset+=PAGE_SIZE) {
+    			PaginatedResults<Team> teamPRs = synapseClient.getTeams(null, PAGE_SIZE, offset);
     			totalNumberOfResults=teamPRs.getTotalNumberOfResults();
     			// sort teams by name
     			for (Team team : teamPRs.getResults()) nameToTeamMap.put(team.getName(), team);
@@ -168,27 +167,32 @@ public class SynapseUserGeolocation {
     	List<String> hyperLinks = new ArrayList<String>();
     	for (String name : nameToTeamMap.keySet()) {
     		Team team = nameToTeamMap.get(name);
-        	PaginatedResults<TeamMember> memberPRs = synapseClient.getTeamMembers(team.getId(), null, Integer.MAX_VALUE, 0);
-        	Map<String,JSONObject> teamGeoLocMap = new HashMap<String,JSONObject>();
-        	for (TeamMember member : memberPRs.getResults()) {
-        		String userId = member.getMember().getOwnerId();
-        		String location = userToLocationMap.get(userId);
-        		if (location==null) continue;
-        		JSONObject geoLocatedInfo = geoLocMap.get(location);
-        		if (geoLocatedInfo==null) throw 
-        			new IllegalStateException(userId+" maps to "+location+" but this location has no value in 'geoLocMap'");
-        		JSONObject teamGeoLocatedInfo = teamGeoLocMap.get(location);
-        		if (teamGeoLocatedInfo==null) {
-        			teamGeoLocatedInfo = initializeGeoLocInfo(location, userId);
-					JSONArray srcLatLng = (JSONArray)geoLocatedInfo.get(LATLNG_TAG);
-					JSONArray dstLatLng = (JSONArray)teamGeoLocatedInfo.get(LATLNG_TAG);
-					for (int ll=0; ll<2; ll++) dstLatLng.put(ll, srcLatLng.getDouble(ll));
-					teamGeoLocMap.put(location, teamGeoLocatedInfo);
-        		} else {
-        			JSONArray userIds = (JSONArray)teamGeoLocatedInfo.get(USER_IDS_TAG);
-        			userIds.put(userIds.length(), userId);
-        		}
-        	}
+    		long totalNumberOfResults =1L;
+    		Map<String,JSONObject> teamGeoLocMap = new HashMap<String,JSONObject>();
+    		for (long offset=0; offset<totalNumberOfResults; offset+=PAGE_SIZE) {
+    			PaginatedResults<TeamMember> memberPRs = synapseClient.getTeamMembers(team.getId(), null, PAGE_SIZE, offset);
+    			totalNumberOfResults = memberPRs.getTotalNumberOfResults();
+
+    			for (TeamMember member : memberPRs.getResults()) {
+    				String userId = member.getMember().getOwnerId();
+    				String location = userToLocationMap.get(userId);
+    				if (location==null) continue;
+    				JSONObject geoLocatedInfo = geoLocMap.get(location);
+    				if (geoLocatedInfo==null) throw 
+    				new IllegalStateException(userId+" maps to "+location+" but this location has no value in 'geoLocMap'");
+    				JSONObject teamGeoLocatedInfo = teamGeoLocMap.get(location);
+    				if (teamGeoLocatedInfo==null) {
+    					teamGeoLocatedInfo = initializeGeoLocInfo(location, userId);
+    					JSONArray srcLatLng = (JSONArray)geoLocatedInfo.get(LATLNG_TAG);
+    					JSONArray dstLatLng = (JSONArray)teamGeoLocatedInfo.get(LATLNG_TAG);
+    					for (int ll=0; ll<2; ll++) dstLatLng.put(ll, srcLatLng.getDouble(ll));
+    					teamGeoLocMap.put(location, teamGeoLocatedInfo);
+    				} else {
+    					JSONArray userIds = (JSONArray)teamGeoLocatedInfo.get(USER_IDS_TAG);
+    					userIds.put(userIds.length(), userId);
+    				}
+    			}
+    		}
         	// don't create a page for Teams having no geolocated members
         	if (teamGeoLocMap.isEmpty()) continue;
         	JSONArray teamInfo = new JSONArray();
