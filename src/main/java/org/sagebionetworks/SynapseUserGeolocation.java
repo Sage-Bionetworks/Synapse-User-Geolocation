@@ -12,7 +12,6 @@ import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -52,14 +51,16 @@ public class SynapseUserGeolocation {
     private static final String LOCATION_TAG = "location";
     private static final String USER_IDS_TAG = "userIds";
     
-    private static final String GEO_LOC_MAP_CONTENTS_FILE = "geoLocMapFile.json";
-    private static final String USER_TO_LOC_MAP_CONTENTS_FILE = "userToLocMapFile.json";
+    private static final String GOOGLE_RESULTS_FILE = "googleResults.json";
+    
+    private JSONObject googleResults = null;
 	
     public static void main( String[] args ) throws Exception {
-    	geoLocate();
+    	SynapseUserGeolocation sgl = new SynapseUserGeolocation();
+    	sgl.geoLocate();
     }
     
-    public static void geoLocate() throws Exception {
+    public void geoLocate() throws Exception {
     	String synapseUserName = getProperty("SYNAPSE_USERNAME");
     	String synapsePassword = getProperty("SYNAPSE_PASSWORD");
         SynapseClient synapseClient = SynapseClientFactory.createSynapseClient();
@@ -67,31 +68,15 @@ public class SynapseUserGeolocation {
     	long total = 1L;
     	int latLngCount = 0;
     	int geoLocatedUsersCount = 0;
-    	String geoLocMapString = null;
+    	Map<String,JSONObject> geoLocMap = new HashMap<String,JSONObject>();
+    	Map<String,String> userToLocationMap = new HashMap<String,String>();
+    	
     	try {
-    		geoLocMapString = downloadFile(GEO_LOC_MAP_CONTENTS_FILE);
+    		String googleResultsString = downloadFile(GOOGLE_RESULTS_FILE);
+    		googleResults = new JSONObject(googleResultsString);
     	} catch (Exception e) {
-    		System.out.println("Exception trying to download file "+GEO_LOC_MAP_CONTENTS_FILE+". Will start from scratch.  Exception is: ");
-    		e.printStackTrace();
-    	}
-    	JSONObject geoLocMap = null;
-    	if (geoLocMapString==null) {
-    		geoLocMap = new JSONObject();
-    	} else {
-    		geoLocMap = new JSONObject(geoLocMapString);
-    	}
-    	String userToLocMapString = null;
-    	try {
-    		userToLocMapString = downloadFile(USER_TO_LOC_MAP_CONTENTS_FILE);
-    	} catch (Exception e) {
-    		System.out.println("Exception trying to download file "+USER_TO_LOC_MAP_CONTENTS_FILE+". Will start from scratch.  Exception is: ");
-    		e.printStackTrace();
-    	}
-    	JSONObject userToLocationMap = null;
-    	if (userToLocMapString==null) {
-    		userToLocationMap = new JSONObject();
-    	} else {
-    		userToLocationMap = new JSONObject(geoLocMapString);
+    		System.out.println("Exception trying to download file "+GOOGLE_RESULTS_FILE+". Will start from scratch.  Exception is: ");
+    		googleResults = new JSONObject();
     	}
     	int consecutiveFailures = 0;
        	for (int offset=0; offset<total && latLngCount<MAX_GEO_POSNS && consecutiveFailures<MAX_CONSECUTIVE_FAILURES; offset+=PAGE_SIZE) {
@@ -117,26 +102,13 @@ public class SynapseUserGeolocation {
         					replaceAll("TÃ¯Â¿Â½bingen, Germany", "Tübingen, Germany").
         					replaceAll("BogotÃ¯Â¿Â½, Colombia", "Bogota, Colombia").
         					replaceAll("Sï¿½o Paulo, Brazil", "Sao Paulo, Brazil");
-        			JSONObject geoLocatedInfo = geoLocMap.has(fixedLocation)? (JSONObject)geoLocMap.get(fixedLocation) : null;
-
+        			JSONObject geoLocatedInfo = geoLocMap.get(fixedLocation);
         			if (geoLocatedInfo==null) {
-        				String encodedLocation = URLEncoder.encode(fixedLocation, "utf-8");
-        				String urlString = "https://maps.googleapis.com/maps/api/geocode/json?sensor=true_or_false&address="+
-        						encodedLocation;
-        				String json = executeJsonQueryWithRetry(urlString);
-        				Thread.sleep(500L);
-        				double[] latlng = getLatLngFromResponse(json);
+        				double[] latlng = lookupLocation(fixedLocation);
         				if (latlng==null) {
         					if (fixedLocation.startsWith("Greater ") && fixedLocation.endsWith(" Area")) {
-        						String upString = fixedLocation;
-        						upString = upString.substring(8);
-        	        			upString = upString.substring(0, upString.length()-5).trim();
-                				encodedLocation = URLEncoder.encode(upString, "utf-8");
-                				urlString = "https://maps.googleapis.com/maps/api/geocode/json?sensor=true_or_false&address="+
-                						encodedLocation;
-                				json = executeJsonQueryWithRetry(urlString);
-                				Thread.sleep(500L);
-                				latlng = getLatLngFromResponse(json);
+        						String upString = fixedLocation.substring(8, fixedLocation.length()-5).trim();
+                 				latlng = lookupLocation(upString);
         					}
         					if (latlng==null) {
         						System.out.println("No result for "+fixedLocation);
@@ -146,7 +118,7 @@ public class SynapseUserGeolocation {
         				if (latlng!=null) {
         					consecutiveFailures=0;
         					// if there is an existing lat/lng that matches this one, then merge
-        					geoLocatedInfo = checkForDuplicate(fixedLocation, latlng, geoLocMap);
+        					geoLocatedInfo = checkForDuplicate(fixedLocation, latlng, geoLocMap.values());
         					if (geoLocatedInfo == null) {
         						geoLocatedInfo = initializeGeoLocInfo(fixedLocation, up.getOwnerId());
         						JSONArray jsonLatLng = (JSONArray)geoLocatedInfo.get(LATLNG_TAG);
@@ -172,18 +144,14 @@ public class SynapseUserGeolocation {
        		System.out.println("Encountered "+consecutiveFailures+" consecutive failures.  May have reached the limit for API requests.");
        	}
        	
-       	// now write the maps
-       	uploadFile(GEO_LOC_MAP_CONTENTS_FILE, geoLocMap.toString());
-       	uploadFile(USER_TO_LOC_MAP_CONTENTS_FILE, userToLocationMap.toString());
+       	// now write the google results so we don't have to get them again
+       	uploadFile(GOOGLE_RESULTS_FILE, googleResults.toString());
 
        	JSONArray allInfo = new JSONArray();
-       	Iterator<String> it = geoLocMap.keys();
-    	while (it.hasNext()) {
-    		JSONObject gli = (JSONObject)geoLocMap.getJSONObject((String)it.next());
+       	for (JSONObject gli : geoLocMap.values()) {
 			allInfo.put(allInfo.length(), gli);
-    		
     	}
-    	System.out.println("Number of geolocated users: "+geoLocatedUsersCount+".  Number of distinct locations: "+geoLocMap.length());
+    	System.out.println("Number of geolocated users: "+geoLocatedUsersCount+".  Number of distinct locations: "+geoLocMap.size());
     	
     	// upload the js file
     	String jsContent = readTemplate(JS_FILE_NAME, null);
@@ -218,9 +186,9 @@ public class SynapseUserGeolocation {
 
     			for (TeamMember member : memberPRs.getResults()) {
     				String userId = member.getMember().getOwnerId();
-    				String location = userToLocationMap.getString(userId);
+    				String location = userToLocationMap.get(userId);
     				if (location==null) continue;
-    				JSONObject geoLocatedInfo = geoLocMap.getJSONObject(location);
+    				JSONObject geoLocatedInfo = geoLocMap.get(location);
     				if (geoLocatedInfo==null) throw 
     				new IllegalStateException(userId+" maps to "+location+" but this location has no value in 'geoLocMap'");
     				JSONObject teamGeoLocatedInfo = teamGeoLocMap.get(location);
@@ -269,10 +237,8 @@ public class SynapseUserGeolocation {
     
     private static final double EPSILON = 1e-2;
     
-    private static JSONObject checkForDuplicate(String location, double[]latlng, JSONObject geoMap) throws JSONException {
-    	Iterator<String> it = geoMap.keys();
-    	while (it.hasNext()) {
-    		JSONObject o = (JSONObject)geoMap.getJSONObject((String)it.next());
+    private static JSONObject checkForDuplicate(String location, double[]latlng, Collection<JSONObject> values) throws JSONException {
+    	for (JSONObject o : values) {
     		JSONArray a = (JSONArray)o.get(LATLNG_TAG);
     		if (Math.abs(latlng[0]-a.getDouble(0))<EPSILON && Math.abs(latlng[1]-a.getDouble(1))<EPSILON) {
     			return o;
@@ -299,6 +265,29 @@ public class SynapseUserGeolocation {
     private static final int RETRIES = 3;
     
     private static final String EMPTY_JSON = "{}";
+    
+    
+    private double[] lookupLocation(String location) throws IOException, JSONException, InterruptedException {
+    	// if the result is cached then don't look it up using the Google geolocation service
+    	JSONArray jsonLatLng = googleResults.has(location) ? googleResults.getJSONArray(location) : null;
+    	if (jsonLatLng!=null) {
+    		double[] latlng = new double[2];
+    		for (int i=0; i<2; i++) latlng[i]=jsonLatLng.getDouble(i);
+    		return latlng;
+    	}
+		String encodedLocation = URLEncoder.encode(location, "utf-8");
+		String urlString = "https://maps.googleapis.com/maps/api/geocode/json?sensor=true_or_false&address="+
+				encodedLocation;
+		String json = executeJsonQueryWithRetry(urlString);
+		Thread.sleep(500L);
+		double[] latlng = getLatLngFromResponse(json);
+		if (latlng!=null) {
+			jsonLatLng = new JSONArray();
+			for (int i=0; i<2; i++) jsonLatLng.put(i, latlng[i]);
+			googleResults.put(location, jsonLatLng);
+		}
+		return latlng;
+    }
     
 	private static String executeJsonQueryWithRetry(String urlString) throws IOException {
 		for (int i=0; i<RETRIES; i++) {
