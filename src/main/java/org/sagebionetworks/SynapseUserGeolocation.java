@@ -12,6 +12,7 @@ import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -30,6 +31,7 @@ import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.util.IOUtils;
 
 /**
  * Hello world!
@@ -45,9 +47,13 @@ public class SynapseUserGeolocation {
     private static final String TEAM_PAGE_FILE_TEMPLATE = "teamPageTemplate.html";
     // this allows us to test without processing all users
     private static final int MAX_GEO_POSNS = 100000;
+    private static final int MAX_CONSECUTIVE_FAILURES = 75;
     private static final String LATLNG_TAG = "latLng";
     private static final String LOCATION_TAG = "location";
     private static final String USER_IDS_TAG = "userIds";
+    
+    private static final String GEO_LOC_MAP_CONTENTS_FILE = "geoLocMapFile.json";
+    private static final String USER_TO_LOC_MAP_CONTENTS_FILE = "userToLocMapFile.json";
 	
     public static void main( String[] args ) throws Exception {
     	geoLocate();
@@ -61,14 +67,39 @@ public class SynapseUserGeolocation {
     	long total = 1L;
     	int latLngCount = 0;
     	int geoLocatedUsersCount = 0;
-    	Map<String,JSONObject> geoLocMap = new HashMap<String,JSONObject>();
-    	Map<String,String> userToLocationMap = new HashMap<String,String>();
-       	for (int offset=0; offset<total && latLngCount<MAX_GEO_POSNS; offset+=PAGE_SIZE) {
+    	String geoLocMapString = null;
+    	try {
+    		geoLocMapString = downloadFile(GEO_LOC_MAP_CONTENTS_FILE);
+    	} catch (Exception e) {
+    		System.out.println("Exception trying to download file "+GEO_LOC_MAP_CONTENTS_FILE+". Will start from scratch.  Exception is: ");
+    		e.printStackTrace();
+    	}
+    	JSONObject geoLocMap = null;
+    	if (geoLocMapString==null) {
+    		geoLocMap = new JSONObject();
+    	} else {
+    		geoLocMap = new JSONObject(geoLocMapString);
+    	}
+    	String userToLocMapString = null;
+    	try {
+    		userToLocMapString = downloadFile(USER_TO_LOC_MAP_CONTENTS_FILE);
+    	} catch (Exception e) {
+    		System.out.println("Exception trying to download file "+USER_TO_LOC_MAP_CONTENTS_FILE+". Will start from scratch.  Exception is: ");
+    		e.printStackTrace();
+    	}
+    	JSONObject userToLocationMap = null;
+    	if (userToLocMapString==null) {
+    		userToLocationMap = new JSONObject();
+    	} else {
+    		userToLocationMap = new JSONObject(geoLocMapString);
+    	}
+    	int consecutiveFailures = 0;
+       	for (int offset=0; offset<total && latLngCount<MAX_GEO_POSNS && consecutiveFailures<MAX_CONSECUTIVE_FAILURES; offset+=PAGE_SIZE) {
 			System.out.println(""+offset+" of "+total);
        		PaginatedResults<UserProfile> pr = synapseClient.getUsers(offset, PAGE_SIZE);
         	total = (int)pr.getTotalNumberOfResults();
         	List<UserProfile> page = pr.getResults();
-        	for (int i=0; i<page.size() && latLngCount<MAX_GEO_POSNS; i++) {
+        	for (int i=0; i<page.size() && latLngCount<MAX_GEO_POSNS && consecutiveFailures<MAX_CONSECUTIVE_FAILURES; i++) {
         		UserProfile up = page.get(i);
         		if (!empty(up.getLocation())) {
         			String fixedLocation = up.getLocation().
@@ -86,7 +117,7 @@ public class SynapseUserGeolocation {
         					replaceAll("TÃ¯Â¿Â½bingen, Germany", "Tübingen, Germany").
         					replaceAll("BogotÃ¯Â¿Â½, Colombia", "Bogota, Colombia").
         					replaceAll("Sï¿½o Paulo, Brazil", "Sao Paulo, Brazil");
-        			JSONObject geoLocatedInfo = geoLocMap.get(fixedLocation);
+        			JSONObject geoLocatedInfo = geoLocMap.has(fixedLocation)? (JSONObject)geoLocMap.get(fixedLocation) : null;
 
         			if (geoLocatedInfo==null) {
         				String encodedLocation = URLEncoder.encode(fixedLocation, "utf-8");
@@ -109,11 +140,13 @@ public class SynapseUserGeolocation {
         					}
         					if (latlng==null) {
         						System.out.println("No result for "+fixedLocation);
+        						consecutiveFailures++;
         					}
         				}
         				if (latlng!=null) {
+        					consecutiveFailures=0;
         					// if there is an existing lat/lng that matches this one, then merge
-        					geoLocatedInfo = checkForDuplicate(fixedLocation, latlng, geoLocMap.values());
+        					geoLocatedInfo = checkForDuplicate(fixedLocation, latlng, geoLocMap);
         					if (geoLocatedInfo == null) {
         						geoLocatedInfo = initializeGeoLocInfo(fixedLocation, up.getOwnerId());
         						JSONArray jsonLatLng = (JSONArray)geoLocatedInfo.get(LATLNG_TAG);
@@ -125,7 +158,7 @@ public class SynapseUserGeolocation {
         					userToLocationMap.put(up.getOwnerId(), fixedLocation);
         					geoLocatedUsersCount++;
         				}
-        			} else {
+        			} else { //geoLocatedInfo!=null, i.e. geoLocMap has a value for the given location
         				JSONArray userIds = (JSONArray)geoLocatedInfo.get(USER_IDS_TAG);
         				userIds.put(userIds.length(), up.getOwnerId());
     					userToLocationMap.put(up.getOwnerId(), fixedLocation);
@@ -135,12 +168,22 @@ public class SynapseUserGeolocation {
         		}
         	}
        	}
-    	JSONArray allInfo = new JSONArray();
-    	for (JSONObject gli : geoLocMap.values()) {
+       	if (consecutiveFailures>=MAX_CONSECUTIVE_FAILURES) {
+       		System.out.println("Encountered "+consecutiveFailures+" consecutive failures.  May have reached the limit for API requests.");
+       	}
+       	
+       	// now write the maps
+       	uploadFile(GEO_LOC_MAP_CONTENTS_FILE, geoLocMap.toString());
+       	uploadFile(USER_TO_LOC_MAP_CONTENTS_FILE, userToLocationMap.toString());
+
+       	JSONArray allInfo = new JSONArray();
+       	Iterator<String> it = geoLocMap.keys();
+    	while (it.hasNext()) {
+    		JSONObject gli = (JSONObject)geoLocMap.getJSONObject((String)it.next());
 			allInfo.put(allInfo.length(), gli);
     		
     	}
-    	System.out.println("Number of geolocated users: "+geoLocatedUsersCount+".  Number of distinct locations: "+geoLocMap.size());
+    	System.out.println("Number of geolocated users: "+geoLocatedUsersCount+".  Number of distinct locations: "+geoLocMap.length());
     	
     	// upload the js file
     	String jsContent = readTemplate(JS_FILE_NAME, null);
@@ -175,9 +218,9 @@ public class SynapseUserGeolocation {
 
     			for (TeamMember member : memberPRs.getResults()) {
     				String userId = member.getMember().getOwnerId();
-    				String location = userToLocationMap.get(userId);
+    				String location = userToLocationMap.getString(userId);
     				if (location==null) continue;
-    				JSONObject geoLocatedInfo = geoLocMap.get(location);
+    				JSONObject geoLocatedInfo = geoLocMap.getJSONObject(location);
     				if (geoLocatedInfo==null) throw 
     				new IllegalStateException(userId+" maps to "+location+" but this location has no value in 'geoLocMap'");
     				JSONObject teamGeoLocatedInfo = teamGeoLocMap.get(location);
@@ -226,11 +269,12 @@ public class SynapseUserGeolocation {
     
     private static final double EPSILON = 1e-2;
     
-    private static JSONObject checkForDuplicate(String location, double[]latlng, Collection<JSONObject> values) throws JSONException {
-    	for (JSONObject o : values) {
+    private static JSONObject checkForDuplicate(String location, double[]latlng, JSONObject geoMap) throws JSONException {
+    	Iterator<String> it = geoMap.keys();
+    	while (it.hasNext()) {
+    		JSONObject o = (JSONObject)geoMap.getJSONObject((String)it.next());
     		JSONArray a = (JSONArray)o.get(LATLNG_TAG);
     		if (Math.abs(latlng[0]-a.getDouble(0))<EPSILON && Math.abs(latlng[1]-a.getDouble(1))<EPSILON) {
-    			//System.out.println(location+" is colocated with "+o.get(LOCATION_TAG));
     			return o;
     		}
     	}
@@ -309,7 +353,8 @@ public class SynapseUserGeolocation {
 	    	result[1] = latlng.getDouble("lng");
 	    	return result;
 		} catch (JSONException e) {
-			throw new RuntimeException(s, e);
+			System.out.println("In getLatLngFromResponse, encountered message and will return null: "+e.getMessage()); 
+			return null;
 		}
 	}
 	
@@ -340,21 +385,43 @@ public class SynapseUserGeolocation {
 		}
 	}
 
-	
-	private static void uploadFile(String s3FileName, String content) throws IOException {
-    	System.out.println("Uploading "+s3FileName);
+	private static AmazonS3Client getS3Client() {
 		String accessKey = getProperty("ACCESS_KEY");
 		String secretKey = getProperty("SECRET_KEY");
 		AWSCredentials awsCredentials = new BasicAWSCredentials(accessKey, secretKey);
-		AmazonS3Client client = new AmazonS3Client(awsCredentials);
+		return new AmazonS3Client(awsCredentials);
+	}
+	
+	private static final String CHAR_SET="utf-8";
+	
+	private static void uploadFile(String s3FileName, String content) throws IOException {
+    	System.out.println("Uploading "+s3FileName);
+    	AmazonS3Client client = getS3Client();
 		ObjectMetadata metadata = new ObjectMetadata();
 		metadata.setContentType("text/html");
-		InputStream is = new ByteArrayInputStream(content.getBytes("utf-8"));
+		InputStream is = new ByteArrayInputStream(content.getBytes(CHAR_SET));
 		try {
 			client.putObject(BUCKET_NAME, s3FileName, is, metadata);
 		} finally {
 			is.close();
 		}
+	}
+
+	private static String downloadFile(String s3FileName) throws IOException {
+    	AmazonS3Client client = getS3Client();
+    	ByteArrayOutputStream baos=new ByteArrayOutputStream();
+		String urlString = client.getResourceUrl(BUCKET_NAME, s3FileName);
+		if (urlString.startsWith("https")) urlString = "http"+urlString.substring(5); // hack to use http, not https
+    	System.out.println("Downloading: "+urlString);
+		URL url = new URL(urlString);
+		InputStream in = url.openStream();
+		try {
+			IOUtils.copy(in, baos);
+		} finally {
+			in.close();
+			baos.close();
+		}
+		return baos.toString(CHAR_SET);
 	}
 
 	private static Properties properties = null;
