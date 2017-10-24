@@ -53,6 +53,7 @@ public class SynapseUserGeolocation {
     
     private static final String GOOGLE_RESULTS_FILE = "googleResults.json";
     
+    private int googleRequestCount=0;
     private JSONObject googleResults = null;
 	
     public static void main( String[] args ) throws Exception {
@@ -78,6 +79,8 @@ public class SynapseUserGeolocation {
     		System.out.println("Exception trying to download file "+GOOGLE_RESULTS_FILE+". Will start from scratch.  Exception is: ");
     		googleResults = new JSONObject();
     	}
+    	int numPreviouslyKnownLocations = googleResults.length();
+    	googleRequestCount = 0;
     	int consecutiveFailures = 0;
        	for (int offset=0; offset<total && latLngCount<MAX_GEO_POSNS && consecutiveFailures<MAX_CONSECUTIVE_FAILURES; offset+=PAGE_SIZE) {
 			System.out.println(""+offset+" of "+total);
@@ -151,7 +154,11 @@ public class SynapseUserGeolocation {
        	for (JSONObject gli : geoLocMap.values()) {
 			allInfo.put(allInfo.length(), gli);
     	}
-    	System.out.println("Number of geolocated users: "+geoLocatedUsersCount+".  Number of distinct locations: "+geoLocMap.size());
+    	System.out.println("Number of previously geolocated names: "+numPreviouslyKnownLocations+
+    			", number calls to Google geolocation service: "+googleRequestCount+
+    			", number of geolocated names afterward: "+googleResults.length());
+    	System.out.println("Total number of geolocated users: "+geoLocatedUsersCount+
+    			".  Number of distinct locations: "+geoLocMap.size());
     	
     	// upload the js file
     	String jsContent = readTemplate(JS_FILE_NAME, null);
@@ -279,6 +286,7 @@ public class SynapseUserGeolocation {
 		String urlString = "https://maps.googleapis.com/maps/api/geocode/json?sensor=true_or_false&address="+
 				encodedLocation;
 		String json = executeJsonQueryWithRetry(urlString);
+		googleRequestCount++;
 		Thread.sleep(500L);
 		double[] latlng = getLatLngFromResponse(json);
 		if (latlng!=null) {
@@ -342,7 +350,7 @@ public class SynapseUserGeolocation {
 	    	result[1] = latlng.getDouble("lng");
 	    	return result;
 		} catch (JSONException e) {
-			System.out.println("In getLatLngFromResponse, encountered message and will return null: "+e.getMessage()); 
+			System.out.println("In getLatLngFromResponse, encountered exception and will return null: "+e.getMessage()); 
 			return null;
 		}
 	}
