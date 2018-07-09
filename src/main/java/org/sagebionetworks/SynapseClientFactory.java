@@ -4,12 +4,21 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.Arrays;
+import java.util.List;
 
 import org.sagebionetworks.client.SynapseClient;
 import org.sagebionetworks.client.SynapseClientImpl;
 import org.sagebionetworks.client.SynapseProfileProxy;
-import org.sagebionetworks.utils.DefaultHttpClientSingleton;
-import org.sagebionetworks.utils.HttpClientHelper;
+import org.sagebionetworks.client.exceptions.SynapseBadRequestException;
+import org.sagebionetworks.client.exceptions.SynapseConflictingUpdateException;
+import org.sagebionetworks.client.exceptions.SynapseDeprecatedServiceException;
+import org.sagebionetworks.client.exceptions.SynapseForbiddenException;
+import org.sagebionetworks.client.exceptions.SynapseNotFoundException;
+import org.sagebionetworks.client.exceptions.SynapseResultNotReadyException;
+import org.sagebionetworks.client.exceptions.SynapseServerException;
+import org.sagebionetworks.client.exceptions.SynapseTermsOfUseException;
+import org.sagebionetworks.client.exceptions.SynapseUnauthorizedException;
 
 
 public class SynapseClientFactory {
@@ -17,8 +26,6 @@ public class SynapseClientFactory {
 	private static final int TIMEOUT_MILLIS = 5 * 60 * 1000; // 5 minutes, as milliseconds   
 
 	private static SynapseClient createSynapseClientIntern() {
-		HttpClientHelper.setGlobalConnectionTimeout(DefaultHttpClientSingleton.getInstance(), TIMEOUT_MILLIS);	
-		HttpClientHelper.setGlobalSocketTimeout(DefaultHttpClientSingleton.getInstance(), TIMEOUT_MILLIS);	
 		SynapseClientImpl scIntern = new SynapseClientImpl();
 		scIntern.setAuthEndpoint("https://repo-prod.prod.sagebase.org/auth/v1");
 		scIntern.setRepositoryEndpoint("https://repo-prod.prod.sagebase.org/repo/v1");
@@ -26,16 +33,34 @@ public class SynapseClientFactory {
 		return SynapseProfileProxy.createProfileProxy(scIntern);
 	}
 
+	private static final List<Class<? extends SynapseServerException>> NO_RETRY_EXCEPTIONS = Arrays.asList(
+			SynapseResultNotReadyException.class,
+			SynapseNotFoundException.class,
+			SynapseBadRequestException.class,
+			SynapseConflictingUpdateException.class,
+			SynapseDeprecatedServiceException.class,
+			SynapseForbiddenException.class, 
+			SynapseTermsOfUseException.class,
+			SynapseUnauthorizedException.class,
+			SynapseConflictingUpdateException.class
+			); // TODO need to catch and not retry 409 too
+	
+	private static final Integer[] NO_RETRY_STATUSES = new Integer[] {409};
+
 	public static SynapseClient createSynapseClient() {
 		final SynapseClient synapseClientIntern = createSynapseClientIntern();
+
+		final ExponentialBackoffRunner exponentialBackoffRunner = new ExponentialBackoffRunner(
+				NO_RETRY_EXCEPTIONS, NO_RETRY_STATUSES, ExponentialBackoffRunner.DEFAULT_NUM_RETRY_ATTEMPTS);
 
 		InvocationHandler handler = new InvocationHandler() {
 			public Object invoke(final Object proxy, final Method method, final Object[] args)
 					throws Throwable {
-				return ExponentialBackoffUtil.executeWithExponentialBackoff(new Executable<Object>() {
+				return exponentialBackoffRunner.execute(new Executable<Object>() {
 					public Object execute() throws Throwable {
 						try {
-							return method.invoke(synapseClientIntern, args);
+							Object result = method.invoke(synapseClientIntern, args);
+							return result;
 						} catch (IllegalAccessException  e) {
 							throw new RuntimeException(e);
 						} catch (InvocationTargetException e) {
@@ -45,10 +70,11 @@ public class SynapseClientFactory {
 				});
 			}
 		};
-			
+
 		return (SynapseClient) Proxy.newProxyInstance(SynapseClient.class.getClassLoader(),
 				new Class[] { SynapseClient.class },
 				handler);
+
 	}
 
 }

@@ -12,6 +12,7 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    	<java.version>1.8</java.version>
   </properties>
   
   	<repositories>
@@ -57,7 +58,7 @@
 		<dependency>
 			<groupId>org.sagebionetworks</groupId>
 			<artifactId>synapseJavaClient</artifactId>
-			<version>120.0</version>
+			<version>232.00-1-g697a598</version>
 		</dependency>
 		
 		<dependency>
