@@ -1,2 +1,16 @@
-language: java
-script: mvn clean install
+language: ruby
+
+services:
+  - docker
+
+before_install:
+- docker pull sagebionetworks/synapseusergeolocation
+
+script: 
+- >
+  docker run --rm -it 
+  -e SYNAPSE_USERNAME=${SYNAPSE_USERNAME}
+  -e SYNAPSE_PASSWORD=${SYNAPSE_PASSWORD}
+  -e ACCESS_KEY=${ACCESS_KEY}
+  -e SECRET_KEY=${SECRET_KEY}
+  sagebionetworks/synapseusergeolocation

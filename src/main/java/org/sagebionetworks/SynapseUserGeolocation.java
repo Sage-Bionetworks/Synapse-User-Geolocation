@@ -243,7 +243,7 @@ public class SynapseUserGeolocation {
 		uploadFile(MAIN_PAGE_FILE_NAME, mainPageContent);
 		uploadFile(ALL_MARKERS_JSON, allInfo.toString());
 
-		System.out.println("Finished uploading files to S3.  Visit http://s3.amazonaws.com/"+BUCKET_NAME+"/"+MAIN_PAGE_FILE_NAME);
+		System.out.println("Finished uploading files to S3.  Visit https://s3.amazonaws.com/"+BUCKET_NAME+"/"+MAIN_PAGE_FILE_NAME);
 	}
 
 	private static final double EPSILON = 1e-2;
