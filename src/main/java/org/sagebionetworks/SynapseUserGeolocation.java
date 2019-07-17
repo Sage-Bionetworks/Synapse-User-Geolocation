@@ -433,7 +433,7 @@ public class SynapseUserGeolocation {
 		InputStream is = null;
 		try {
 			is = SynapseUserGeolocation.class.getClassLoader().getResourceAsStream("global.properties");
-			properties.load(is);
+			if (is!=null) properties.load(is);
 		} catch (IOException e) {
 			throw new RuntimeException(e);
 		} finally {
