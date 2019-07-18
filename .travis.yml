@@ -14,3 +14,5 @@ script:
   -e ACCESS_KEY=${ACCESS_KEY}
   -e SECRET_KEY=${SECRET_KEY}
   sagebionetworks/synapseusergeolocation
+
+  
