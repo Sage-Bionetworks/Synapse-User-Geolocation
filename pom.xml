@@ -99,9 +99,15 @@
 					<archive>
 						<manifest>
 							<addClasspath>true</addClasspath>
-							<mainClass>org.sagebionetworks.SynapseUserGeolocation</mainClass>
 						</manifest>
 					</archive>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.codehaus.mojo</groupId>
+				<artifactId>exec-maven-plugin</artifactId>
+				<configuration>
+					<mainClass>org.sagebionetworks.SynapseUserGeolocation</mainClass>
 				</configuration>
 			</plugin>
 		</plugins>
