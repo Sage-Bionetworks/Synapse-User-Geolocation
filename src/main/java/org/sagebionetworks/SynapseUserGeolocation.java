@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.TreeMap;
 
+import org.apache.commons.lang.StringUtils;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -446,13 +447,18 @@ public class SynapseUserGeolocation {
 	}
 
 	public static String getProperty(String key) {
+		return getProperty(key, false);
+	}	
+	
+	public static String getProperty(String key, boolean missingOK) {
 		initProperties();
 		String commandlineOption = System.getProperty(key);
-		if (commandlineOption!=null) return commandlineOption;
+		if (!StringUtils.isEmpty(commandlineOption)) return commandlineOption;
 		String embeddedProperty = properties.getProperty(key);
-		if (embeddedProperty!=null) return embeddedProperty;
-		// (could also check environment variables)
-		throw new RuntimeException("Cannot find value for "+key);
+		if (!StringUtils.isEmpty(embeddedProperty)) return embeddedProperty;
+		String envVar = System.getenv(key);
+		if (!StringUtils.isEmpty(envVar)) return envVar;
+		if (missingOK) return null; else throw new RuntimeException("Cannot find value for "+key);
 	}	
 
 
