@@ -6,8 +6,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLConnection;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -77,13 +77,9 @@ public class SynapseUserGeolocation {
 		Map<String,JSONObject> geoLocMap = new HashMap<String,JSONObject>();
 		Map<String,String> userToLocationMap = new HashMap<String,String>();
 
-		try {
-			String googleResultsString = downloadFile(GOOGLE_RESULTS_FILE);
-			googleResults = new JSONObject(googleResultsString);
-		} catch (Exception e) {
-			System.out.println("Exception trying to download file "+GOOGLE_RESULTS_FILE+". Will start from scratch.  Exception is: ");
-			googleResults = new JSONObject();
-		}
+		String googleResultsString = downloadFile(GOOGLE_RESULTS_FILE);
+		googleResults = new JSONObject(googleResultsString);
+
 		int numPreviouslyKnownLocations = googleResults.length();
 		googleRequestCount = 0;
 		int consecutiveFailures = 0;
@@ -113,15 +109,13 @@ public class SynapseUserGeolocation {
 					JSONObject geoLocatedInfo = geoLocMap.get(fixedLocation);
 					if (geoLocatedInfo==null) {
 						double[] latlng = lookupLocation(fixedLocation);
+						if (latlng==null && fixedLocation.startsWith("Greater ") && fixedLocation.endsWith(" Area")) {
+							String upString = fixedLocation.substring(8, fixedLocation.length()-5).trim();
+							latlng = lookupLocation(upString);
+						}
 						if (latlng==null) {
-							if (fixedLocation.startsWith("Greater ") && fixedLocation.endsWith(" Area")) {
-								String upString = fixedLocation.substring(8, fixedLocation.length()-5).trim();
-								latlng = lookupLocation(upString);
-							}
-							if (latlng==null) {
-								System.out.println("No result for "+fixedLocation);
-								consecutiveFailures++;
-							}
+							System.out.println("No result for "+fixedLocation);
+							consecutiveFailures++;
 						}
 						if (latlng!=null) {
 							consecutiveFailures=0;
@@ -160,7 +154,7 @@ public class SynapseUserGeolocation {
 			allInfo.put(allInfo.length(), gli);
 		}
 		System.out.println("Number of previously geolocated names: "+numPreviouslyKnownLocations+
-				", number calls to Google geolocation service: "+googleRequestCount+
+				", number of calls to Google geolocation service: "+googleRequestCount+
 				", number of geolocated names afterward: "+googleResults.length());
 		System.out.println("Total number of geolocated users: "+geoLocatedUsersCount+
 				".  Number of distinct locations: "+geoLocMap.size());
@@ -321,7 +315,7 @@ public class SynapseUserGeolocation {
 
 	private static String executeJsonQuery(String urlString) throws IOException {
 		URL url = new URL(urlString);
-		URLConnection conn = url.openConnection();
+		HttpURLConnection conn = (HttpURLConnection)url.openConnection();
 		conn.addRequestProperty("Accept", "application/json");
 		InputStream is = conn.getInputStream();
 		ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -337,6 +331,10 @@ public class SynapseUserGeolocation {
 		}
 		baos.flush();
 		String content = baos.toString();
+		int status = conn.getResponseCode();
+		if (status<200 || status >=300) {
+			System.out.println("For "+urlString+" HTTP response code is "+status+" and response is "+content);
+		}
 		return content;
 	}
 
@@ -345,6 +343,10 @@ public class SynapseUserGeolocation {
 			JSONObject bundle = new JSONObject(s);
 			JSONArray resultsArray = bundle.getJSONArray("results");
 			if (resultsArray.length()==0) {
+				String status = bundle.getString("status");
+				if (!("ok".equalsIgnoreCase(status) || "zero_results".equalsIgnoreCase(status))) {
+					throw new IllegalStateException(status+" "+bundle.getString("error_message"));
+				}
 				return null;
 			}
 			JSONObject latlng = ((JSONObject)(resultsArray.get(0))).
