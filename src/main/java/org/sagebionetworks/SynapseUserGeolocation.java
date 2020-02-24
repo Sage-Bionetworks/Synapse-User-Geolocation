@@ -57,6 +57,7 @@ public class SynapseUserGeolocation {
 
 	private int googleRequestCount=0;
 	private JSONObject googleResults = null;
+	private String apiKey = null;
 
 	public static void main( String[] args ) throws Exception {
 		SynapseUserGeolocation sgl = new SynapseUserGeolocation();
@@ -66,6 +67,7 @@ public class SynapseUserGeolocation {
 	public void geoLocate() throws Exception {
 		String synapseUserName = getProperty("SYNAPSE_USERNAME");
 		String synapsePassword = getProperty("SYNAPSE_PASSWORD");
+		apiKey=getProperty("GOOGLE_MAPS_API_KEY");
 		SynapseClient synapseClient = SynapseClientFactory.createSynapseClient();
 		LoginRequest loginRequest = new LoginRequest();
 		loginRequest.setUsername(synapseUserName);
@@ -283,7 +285,7 @@ public class SynapseUserGeolocation {
 		}
 		String encodedLocation = URLEncoder.encode(location, "utf-8");
 		String urlString = "https://maps.googleapis.com/maps/api/geocode/json?sensor=true_or_false&address="+
-				encodedLocation;
+				encodedLocation+"&key="+apiKey;
 		String json = executeJsonQueryWithRetry(urlString);
 		googleRequestCount++;
 		Thread.sleep(500L);
