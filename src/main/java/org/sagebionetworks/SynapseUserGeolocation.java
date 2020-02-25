@@ -406,7 +406,9 @@ public class SynapseUserGeolocation {
 		AmazonS3Client client = getS3Client();
 		ObjectMetadata metadata = new ObjectMetadata();
 		metadata.setContentType("text/html");
-		InputStream is = new ByteArrayInputStream(content.getBytes(CHAR_SET));
+		byte[] contentBytes = content.getBytes(CHAR_SET);
+		metadata.setContentLength(contentBytes.length);
+		InputStream is = new ByteArrayInputStream(contentBytes);
 		try {
 			client.putObject(BUCKET_NAME, s3FileName, is, metadata);
 		} finally {
