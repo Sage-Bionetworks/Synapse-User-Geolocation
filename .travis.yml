@@ -13,6 +13,7 @@ script:
   -e SYNAPSE_PASSWORD=${SYNAPSE_PASSWORD}
   -e ACCESS_KEY=${ACCESS_KEY}
   -e SECRET_KEY=${SECRET_KEY}
+  -e GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
   sagebionetworks/synapseusergeolocation
 
   
