@@ -107,7 +107,8 @@ public class SynapseUserGeolocation {
 							replaceAll("TÃÂ¯ÃÂ¿ÃÂ½bingen, Germany", "Tübingen, Germany").
 							replaceAll("TÃ¯Â¿Â½bingen, Germany", "Tübingen, Germany").
 							replaceAll("BogotÃ¯Â¿Â½, Colombia", "Bogota, Colombia").
-							replaceAll("Sï¿½o Paulo, Brazil", "Sao Paulo, Brazil");
+							replaceAll("Sï¿½o Paulo, Brazil", "Sao Paulo, Brazil").
+							replaceAll("Z�rich", "Zurich");
 					JSONObject geoLocatedInfo = geoLocMap.get(fixedLocation);
 					if (geoLocatedInfo==null) {
 						double[] latlng = lookupLocation(fixedLocation);
@@ -177,7 +178,7 @@ public class SynapseUserGeolocation {
 
 				// don't overwhelm the server with requests
 				try {
-					Thread.sleep(5000L);
+					Thread.sleep(1000L);
 				} catch (InterruptedException e) {
 					// continue
 				}
